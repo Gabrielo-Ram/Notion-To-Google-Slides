@@ -117,8 +117,8 @@ class MCPClient {
 
     //Create the CLI interface
     try {
-      console.log("\nMCP Client Started!");
-      console.log("Type your queries or 'quit' to exit.");
+      console.log("MCP Client Started!");
+      console.log("\nType your queries or 'quit' to exit.");
 
       while (true) {
         const message = await rl.question("\nQuery: ");
@@ -160,6 +160,7 @@ async function main() {
   //Initiate the MCP Client(s)
   const mcpClient = new MCPClient();
   try {
+    console.error("MCP Ecosystem is booting up...");
     await mcpClient.connectToServer(slidesMCPPath);
     //await mcpClient.connectToServer(notionMCPPath);
     await mcpClient.chatLoop();

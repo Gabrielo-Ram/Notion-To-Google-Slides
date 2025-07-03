@@ -10,14 +10,12 @@ import process, { title } from "process";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import fs from "fs";
 import { Client } from "@notionhq/client";
 import { initiateSlides } from "./createPresentation.js";
-import { datafusion_v1beta1 } from "googleapis";
-import { parse } from "csv-parse/sync";
 import { fileURLToPath } from "url";
 import path from "path";
 import dotenv from "dotenv";
+import { CompanyData } from "./types.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -285,6 +283,11 @@ server.tool(
     }),
   },
   async ({ data }) => {
+    //Validates input
+    if (!data) {
+      throw new Error("Missing or invalid input data for create-presentation");
+    }
+
     try {
       await initiateSlides(data);
 
