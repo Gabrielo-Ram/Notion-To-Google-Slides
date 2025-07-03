@@ -53,8 +53,8 @@ function parseNotionPage(page) {
   };
 }
 
-//Creates a server route to '/api' that fetches Notion data
-app.get("/api", async (req, res) => {
+//Creates a server route to '/api/notion-data' that fetches Notion data
+app.get("/api/notion-data", async (req, res) => {
   try {
     //Notion API Call
     const response = await notion.databases.query({

@@ -11,16 +11,25 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import fs from "fs";
-import { object } from "zod/v4";
-import { serviceconsumermanagement } from "googleapis/build/src/apis/serviceconsumermanagement/index.js";
+import { Client } from "@notionhq/client";
 import { initiateSlides } from "./createPresentation.js";
 import { datafusion_v1beta1 } from "googleapis";
 import { parse } from "csv-parse/sync";
 import { fileURLToPath } from "url";
 import path from "path";
+import dotenv from "dotenv";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+dotenv.config({ path: path.resolve(__dirname, "../../.env") });
+
+//Notion Configuration and Setup
+const NOTION_API_KEY = process.env.NOTION_API_KEY;
+const databaseId = process.env.NOTION_DATABASE_ID;
+if (!NOTION_API_KEY || !databaseId) {
+  throw new Error("Notion API Key or DatabaseId not set");
+}
 
 //Create server instance
 const server = new McpServer({
@@ -31,6 +40,42 @@ const server = new McpServer({
     tools: {},
   },
 });
+
+/**
+ * A helper function that formats Notion JSON for each page into a
+ * more readable format.
+ * @param {*} page One page, or row, of the Notion database
+ */
+function parseNotionPage(page: any) {
+  const getRichText = (field: any) => field?.rich_text?.[0]?.plain_text ?? "";
+
+  const getTitle = (field: any) => field?.title?.[0]?.plain_text ?? "";
+
+  const getSelect = (field: any) => field?.select?.name ?? "";
+
+  const getNumber = (field: any) =>
+    typeof field?.number === "number" ? field.number : 0;
+
+  const getDate = (field: any) => field?.date?.start ?? "";
+
+  const props = page.properties;
+
+  return {
+    companyName: getTitle(props["Company Name"]),
+    location: getRichText(props["Location"]),
+    foundedYear: getNumber(props["Founded Year"]),
+    arr: getNumber(props["ARR"]),
+    industry: getSelect(props["Industry"]),
+    burnRate: getNumber(props["Burn Rate"]),
+    exitStrategy: getSelect(props["Exit Strategy"]),
+    dealStatus: getSelect(props["Deal Status"]),
+    fundingStage: getSelect(props["Funding Stage"]),
+    investmentAmount: getNumber(props["Investment Amount"]),
+    investmentDate: getDate(props["Investment Date"]),
+    keyMetrics: getRichText(props["Key Metrics"]),
+    // Optional: presentationId is not in Notion data, add later
+  };
+}
 
 //TESTING: An echo tool call
 server.tool(
@@ -63,41 +108,43 @@ server.tool(
   }
 );
 
-const fetchNotionToolDescription = `This is a tool that fetches formatted JSON data from a custom-built backend and writes a file called 'notion-data.csv' into the root directory of the project.
-`;
+// const fetchNotionToolDescription = `This is a tool that fetches Notion data using the Notion API and returns a formatted JSON object with all the pages in the Notion database.
+// `;
 
-server.tool("fetch-Notion-data", fetchNotionToolDescription, {}, async () => {
-  try {
-    const response = await fetch("http://localhost:8080/api");
+// server.tool("fetch-Notion-data", fetchNotionToolDescription, {}, async () => {
+//   try {
+//     //Query database using Notion API
+//     const notion = new Client({ auth: process.env.NOTION_API_KEY });
+//     const response = await notion.databases.query({
+//       database_id: databaseId,
+//     });
 
-    if (!response.ok) {
-      throw new Error(`HTTP Error! Status: ${response.status}`);
-    }
+//     //Formats raw data fetched from Notion into a simpler, more readable JSON object.
+//     const results = response.results.map((page) => parseNotionPage(page));
 
-    return {
-      content: [
-        {
-          type: "text",
-          text: "Succesfully ran the api endpoint",
-        },
-      ],
-    };
-  } catch (error) {
-    return {
-      content: [
-        {
-          type: "text",
-          text: `There was in error in server tool: \n${error}`,
-        },
-      ],
-    };
-  }
-});
+//     return {
+//       content: [
+//         {
+//           type: "text",
+//           text: JSON.stringify(results),
+//         },
+//       ],
+//     };
+//   } catch (error) {
+//     return {
+//       content: [
+//         {
+//           type: "text",
+//           text: `There was in error in server tool: \n${error}`,
+//         },
+//       ],
+//     };
+//   }
+// });
 
-const readCompanyDataToolDescription = `Extract data for a single company from the notion-data.csv file.
+const readCompanyDataToolDescription = `This tool fetches data from a Notion database of companies, formats the resulting JSON into a readable format, and extracts information specific to one row from the database.
 This tool MUST be called before create-presentation. It returns all the necessary data to generate a Google Slides presentation.
-The user will specify the company name. If the CSV file does not exist, call the tool fetch-Notion-data first to create it.
-Use this tool whenever the user wants to generate a presentation for a specific company.
+The user must specify the name of one company. If unclear, ask the user which company they want to create a presentation for. A user can only create a presentation for ONE company. 
 
 The output of this tool fit the following type structure:
 {
@@ -128,27 +175,15 @@ server.tool(
   },
   async ({ companyName }) => {
     try {
-      const csvPath = path.join(__dirname, "../../notion-data.csv");
-
-      //Calls 'fetch-Notion-data' if the 'notion-data.csv' doesn't exist
-      if (!fs.existsSync(csvPath)) {
-        return {
-          content: [
-            {
-              type: "text",
-              text: "CSV File not found. Please run 'fetch-Notion-data' first.",
-            },
-          ],
-        };
-      }
-
-      //Reads the contents of the csv file and finds the company we want.
-      const fileContent = fs.readFileSync(csvPath, "utf8");
-      const records = parse(fileContent, {
-        columns: true,
-        skip_empty_lines: true,
+      //Query database using Notion API
+      const notion = new Client({ auth: process.env.NOTION_API_KEY });
+      const response = await notion.databases.query({
+        database_id: databaseId,
       });
-      const company = records.find(
+
+      //Formats raw data fetched from Notion into a simpler, more readable JSON object.
+      const results = response.results.map((page) => parseNotionPage(page));
+      const company = results.find(
         (row: any) =>
           row.companyName?.trim().toLowerCase() ===
           companyName.trim().toLowerCase()
@@ -187,7 +222,7 @@ server.tool(
   }
 );
 
-const createPresentationToolDescription = `A build-in-progress tool used to create and style a Google Slides presentation into the user's account. 
+const createPresentationToolDescription = `A tool used to create and style a Google Slides presentation into the user's account. 
 You must call 'extract-company-data' before running this tool.
 This tool creates ONE presentation for ONE set of company data. 
 

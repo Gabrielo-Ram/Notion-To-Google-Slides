@@ -1,15 +1,7 @@
-import {
-  GoogleGenAI,
-  FunctionCallingConfigMode,
-  FunctionDeclaration,
-  Type,
-  mcpToTool,
-  CallableTool,
-} from "@google/genai";
+import { GoogleGenAI, Content, mcpToTool, CallableTool } from "@google/genai";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import readline from "readline/promises";
-import { zodToJsonSchema } from "zod-to-json-schema";
 import dotenv from "dotenv";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -28,6 +20,7 @@ class MCPClient {
   private clients: Client[] = [];
   private transports: StdioClientTransport[] = [];
   private tools: CallableTool[] = [];
+  private messages: Content[] = [];
   //private mcp: Client;
   //   private transport: StdioClientTransport | null = null;
   //   private callableTool: CallableTool | null = null;
@@ -86,15 +79,29 @@ class MCPClient {
     //Add a prompt that enhances the user's query.
     const prop = "";
 
+    //Push user's message to chat history
+    this.messages.push({
+      role: "user",
+      parts: [{ text: query }],
+    });
+
+    //Prompt the model and extract its response as text
     const response = await this.ai.models.generateContent({
       model: "gemini-2.5-flash",
-      contents: query,
+      contents: this.messages,
       config: {
         tools: this.tools,
       },
     });
+    const reply = response.text;
 
-    return response.text;
+    //Push model's response to chat history
+    this.messages.push({
+      role: "model",
+      parts: [{ text: reply }],
+    });
+
+    return reply;
   }
 
   /**
@@ -143,14 +150,12 @@ class MCPClient {
 async function main() {
   //Process the script arguments
   if (process.argv.length < 3) {
-    console.log(
-      "Usage: node index.ts <path_to_GoogleSlides_Server> <path_to_Notion_server>"
-    );
+    console.log("\nUsage: node index.ts <path_to_GoogleSlides_Server>\n");
     return;
   }
 
   const slidesMCPPath = process.argv[2];
-  const notionMCPPath = process.argv[3];
+  //const notionMCPPath = process.argv[3];
 
   //Initiate the MCP Client(s)
   const mcpClient = new MCPClient();
