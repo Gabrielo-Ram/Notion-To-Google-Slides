@@ -1,0 +1,42 @@
+# Node modules in all directories
+**/node_modules/
+
+# Local environment variables
+.env
+.env.local
+.env.*.local
+
+# Google API credentials
+**/credentials.json
+**/token.json
+**/token_*.json
+**/service-account.json
+
+# OAuth2 cache (optional, depending on implementation)
+.oauthtoken.json
+.google/
+
+# Logs
+logs
+*.log
+npm-debug.log*
+
+# OS artifacts
+.DS_Store
+Thumbs.db
+
+# VSCode settings (optional)
+.vscode/
+
+# Build artifacts
+dist/
+build/
+
+# TypeScript cache
+*.tsbuildinfo
+
+# Coverage reports
+coverage/
+
+# Misc
+*.swp

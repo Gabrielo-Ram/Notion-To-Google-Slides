@@ -1,0 +1,30 @@
+{
+  "contextFileName": "GEMINI.md",
+  "mcpServers": {
+    "Context7": {
+      "command": "npx",
+      "args": ["-y", "@upstash/context7-mcp"]
+    },
+
+    "sequential-thinking": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-sequential-thinking"]
+    },
+
+    "notionApi": {
+      "command": "npx",
+      "args": ["-y", "@notionhq/notion-mcp-server"],
+      "env": {
+        "OPENAPI_MCP_HEADERS": "{\"Authorization\": \"Bearer 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\", \"Notion-Version\": \"2022-06-28\" }"
+      }
+    },
+
+    "GoogleSlidesMCP": {
+      "command": "node",
+      "args": [
+        "/Users/gabrielramirez/LearningForHAX/Notion-To-Google-Slides/GoogleSlidesMCP/build/index.js"
+      ]
+    }
+  },
+  "usageStatisticsEnabled": false
+}
