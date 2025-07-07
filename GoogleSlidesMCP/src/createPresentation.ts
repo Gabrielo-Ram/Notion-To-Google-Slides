@@ -15,6 +15,9 @@ const SCOPES = ["https://www.googleapis.com/auth/presentations"];
 const CREDENTIALS_PATH = path.join(__dirname, "../credentials.json");
 const TOKEN_PATH = path.join(__dirname, "../token.json");
 
+//Holds the presentationId of the most recently created presentation
+//const globalId = '';
+
 /* ----———————————————————————————————————————————————--- */
 /**
  * Code taken from Google's Node.js quickstart tutorial
@@ -298,28 +301,29 @@ async function addNewParagraphSlide(
 ) {
   if (!slideData.presentationId) {
     throw new Error(
-      "Could not get presentationID in addNewParagraphSlide(). Check your parameter in function call."
+      "Could not get presentationID in addNewParagraphSlide(). Check the parameter in your function call."
     );
   }
 
   const slideType = slideData.slideType.kind;
   if (slideType !== "Paragraph") {
     throw new Error(
-      "addNewParagraph() requires an 'AddSlideParam' of 'kind: 'paragraph''"
+      "addNewParagraph() requires an 'AddSlideParam' of 'kind: 'paragraph'"
     );
   }
 
-  //Format data from parameter into a string (to be placed into bullet points later)
+  //Format data from parameter into a string
   const summary = slideData.slideType.body;
 
-  //Adds a new slide in our presentation
+  //Adds a new slide in our presentation with a unique ID
+  const uniqueID = `id_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
   const newSlide = await service.presentations.batchUpdate({
     presentationId: slideData.presentationId,
     requestBody: {
       requests: [
         {
           createSlide: {
-            objectId: slideType,
+            objectId: uniqueID,
             slideLayoutReference: {
               predefinedLayout: "TITLE_AND_BODY",
             },
@@ -342,16 +346,14 @@ async function addNewParagraphSlide(
     );
   }
 
-  //Get a reference to the 'General Summary' slide
-  const currentSlide = slidesArray.find(
-    (slide) => slide.objectId === slideType
-  );
+  //Get a reference to the most recently created slide
+  const currentSlide = slidesArray[slidesArray.length - 1];
   if (
     !currentSlide ||
     !currentSlide.pageElements ||
     currentSlide.pageElements.length === 0
   ) {
-    throw new Error("'General Summary' slide not found.");
+    throw new Error("Latest slide not found or has no elements");
   }
 
   //There are automatically two textbox elements in this layout.
@@ -459,9 +461,43 @@ export async function initiateSlides(companyData: CompanyData) {
     };
     await addNewParagraphSlide(paragraphShape, service);
 
-    console.error(`\nCreated presentation with ID: ${newPresentationId}\n`);
+    console.error(`\nCreated presentation with ID: ${newPresentationId}`);
+    return newPresentationId;
   } catch (error) {
     throw new Error(`There was an error in initiateSlides(): \n${error}`);
+  }
+}
+
+/**
+ * This function allows the user (or the LLM) to create a custom slide.
+ * The LLM will format a 'content' block and place it into the new slide along
+ * with a custom title.
+ * @param {string} title The title of the custom slide.
+ * @param {string} content The content placed inside the slide (formatted by the LLM)
+ * @param {string} presentationId The ID of the presentation we want to add a slide to.
+ */
+export async function addCustomSlide(
+  title: string,
+  content: string,
+  presentationId: string
+) {
+  try {
+    //Creates an authorization token
+    const auth = await authorize();
+    const service = google.slides({ version: "v1", auth });
+
+    //Formats data and creates a 'Paragraph' slide
+    const paragraphShape = {
+      companyName: title,
+      slideType: {
+        kind: "Paragraph" as const,
+        body: content,
+      },
+      presentationId: presentationId,
+    };
+    await addNewParagraphSlide(paragraphShape, service);
+  } catch (error) {
+    throw new Error(`There was an error in addCustomSlide(): \n${error}`);
   }
 }
 

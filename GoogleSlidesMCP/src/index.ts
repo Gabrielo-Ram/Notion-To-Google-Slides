@@ -11,11 +11,14 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { Client } from "@notionhq/client";
-import { initiateSlides } from "./createPresentation.js";
+import { addCustomSlide, initiateSlides } from "./createPresentation.js";
 import { fileURLToPath } from "url";
 import path from "path";
 import dotenv from "dotenv";
-import { CompanyData } from "./types.js";
+import { parse } from "csv-parse";
+import fs from "fs";
+// import { CompanyData } from "./types.js";
+// import { jsonDescription } from "zod-to-json-schema";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -39,112 +42,53 @@ const server = new McpServer({
   },
 });
 
-/**
- * A helper function that formats Notion JSON for each page into a
- * more readable format.
- * @param {*} page One page, or row, of the Notion database
- */
-function parseNotionPage(page: any) {
-  const getRichText = (field: any) => field?.rich_text?.[0]?.plain_text ?? "";
+const fetchNotionToolDescription = `This is a tool that fetches Notion data from a database using the Notion API and has two outputs:
+- The tool itself returns a formatted JSON string of the Notion database.
+- Writes this JSON object into a CSV file that is saved in the root project directory.
+`;
 
-  const getTitle = (field: any) => field?.title?.[0]?.plain_text ?? "";
+server.tool("fetch-Notion-data", fetchNotionToolDescription, {}, async () => {
+  try {
+    //Query database using Notion API
+    const notion = new Client({ auth: process.env.NOTION_API_KEY });
+    const response = await notion.databases.query({
+      database_id: databaseId,
+    });
 
-  const getSelect = (field: any) => field?.select?.name ?? "";
+    //Calls the Express endpoint that fetches the Notion data
+    const res = await fetch("http://localhost:8080/api/notion-data");
+    const results = await await res.json();
 
-  const getNumber = (field: any) =>
-    typeof field?.number === "number" ? field.number : 0;
-
-  const getDate = (field: any) => field?.date?.start ?? "";
-
-  const props = page.properties;
-
-  return {
-    companyName: getTitle(props["Company Name"]),
-    location: getRichText(props["Location"]),
-    foundedYear: getNumber(props["Founded Year"]),
-    arr: getNumber(props["ARR"]),
-    industry: getSelect(props["Industry"]),
-    burnRate: getNumber(props["Burn Rate"]),
-    exitStrategy: getSelect(props["Exit Strategy"]),
-    dealStatus: getSelect(props["Deal Status"]),
-    fundingStage: getSelect(props["Funding Stage"]),
-    investmentAmount: getNumber(props["Investment Amount"]),
-    investmentDate: getDate(props["Investment Date"]),
-    keyMetrics: getRichText(props["Key Metrics"]),
-    // Optional: presentationId is not in Notion data, add later
-  };
-}
-
-//TESTING: An echo tool call
-server.tool(
-  "echo",
-  "Echo text from the user",
-  {
-    message: z.string().describe("Any user query"),
-  },
-  async ({ message }) => {
-    try {
-      return {
-        content: [
-          {
-            type: "text",
-            text: message,
-          },
-        ],
-      };
-    } catch (error) {
-      console.error("Error running the 'echo' tool in MCP Server");
-      return {
-        content: [
-          {
-            type: "text",
-            text: "There was an error running the 'echo' tool",
-          },
-        ],
-      };
+    if (!results) {
+      throw new Error("Could not fetch data from local backend.");
     }
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(results),
+        },
+      ],
+    };
+  } catch (error) {
+    return {
+      content: [
+        {
+          type: "text",
+          text: `There was in error in fetch-Notion-data: \n${error}`,
+        },
+      ],
+    };
   }
-);
+});
 
-// const fetchNotionToolDescription = `This is a tool that fetches Notion data using the Notion API and returns a formatted JSON object with all the pages in the Notion database.
-// `;
-
-// server.tool("fetch-Notion-data", fetchNotionToolDescription, {}, async () => {
-//   try {
-//     //Query database using Notion API
-//     const notion = new Client({ auth: process.env.NOTION_API_KEY });
-//     const response = await notion.databases.query({
-//       database_id: databaseId,
-//     });
-
-//     //Formats raw data fetched from Notion into a simpler, more readable JSON object.
-//     const results = response.results.map((page) => parseNotionPage(page));
-
-//     return {
-//       content: [
-//         {
-//           type: "text",
-//           text: JSON.stringify(results),
-//         },
-//       ],
-//     };
-//   } catch (error) {
-//     return {
-//       content: [
-//         {
-//           type: "text",
-//           text: `There was in error in server tool: \n${error}`,
-//         },
-//       ],
-//     };
-//   }
-// });
-
-const readCompanyDataToolDescription = `This tool fetches data from a Notion database of companies, formats the resulting JSON into a readable format, and extracts information specific to one row from the database.
+const extractCompanyDataToolDescription = `This tool extracts data from a specific company from the local CSV file.
+If a local CSV file in the root project directory called 'notion-data.csv' does not exist, please call fetch-Notion-data BEFORE running this tool.
 This tool MUST be called before create-presentation. It returns all the necessary data to generate a Google Slides presentation.
 The user must specify the name of one company. If unclear, ask the user which company they want to create a presentation for. A user can only create a presentation for ONE company. 
 
-The output of this tool fit the following type structure:
+The output of this tool will fit the following type structure:
 {
   companyName: string;
   location: string;
@@ -159,32 +103,42 @@ The output of this tool fit the following type structure:
   investmentDate: string;
   keyMetrics: string;
   presentationId?: string;
-};`;
+};
+
+The output of this tool will serve as the input for create-presentation.`;
 
 server.tool(
   "extract-company-data",
-  readCompanyDataToolDescription,
+  extractCompanyDataToolDescription,
   {
     companyName: z
       .string()
-      .describe(
-        "The name of the company the user wants to create a Google Slides presentation for."
-      ),
+      .describe("The name of the company who's data we want to extract."),
   },
   async ({ companyName }) => {
     try {
-      //Query database using Notion API
-      const notion = new Client({ auth: process.env.NOTION_API_KEY });
-      const response = await notion.databases.query({
-        database_id: databaseId,
-      });
+      const pathToCSV = path.resolve(__dirname, "../../notion-data.csv");
 
-      //Formats raw data fetched from Notion into a simpler, more readable JSON object.
-      const results = response.results.map((page) => parseNotionPage(page));
-      const company = results.find(
-        (row: any) =>
-          row.companyName?.trim().toLowerCase() ===
-          companyName.trim().toLowerCase()
+      const company = await new Promise<Record<string, any> | null>(
+        (resolve, reject) => {
+          const stream = fs
+            .createReadStream(pathToCSV)
+            .pipe(parse({ columns: true, trim: true }));
+
+          stream.on("data", (row) => {
+            if (
+              row.companyName &&
+              row.companyName.trim().toLowerCase() ===
+                companyName.trim().toLowerCase()
+            ) {
+              stream.destroy(); // stop the stream once a match is found resolve(row);
+              resolve(row);
+            }
+          });
+
+          stream.on("end", () => resolve(null)); // no match found
+          stream.on("error", reject); // on error
+        }
       );
 
       if (!company) {
@@ -192,13 +146,12 @@ server.tool(
           content: [
             {
               type: "text",
-              text: `No company found with the name ${companyName}`,
+              text: `No company found with the name "${companyName}"`,
             },
           ],
         };
       }
 
-      //Returns the extracted data
       return {
         content: [
           {
@@ -212,7 +165,9 @@ server.tool(
         content: [
           {
             type: "text",
-            text: `An error occured while extracting company data: \n${error}`,
+            text: `An error occurred while extracting company data:\n${
+              (error as Error).message
+            }`,
           },
         ],
       };
@@ -242,7 +197,11 @@ This tool's only paramater is a JSON object that fits the following type shape:
 };
   
 You must pass input into this tool with the format described above.
-Replace the value for each key with appropriate data from the user or from another source specified by the user.`;
+Replace the value for each key with appropriate data from the user or from another source specified by the user.
+
+This tool will return a string representing the presentationId for the created presentation.
+This value will be important if the user decides to add a custom slide using
+the addCustomSlide() server tool. Remember this data point.`;
 
 //Registers a tool that creates a Google Slides presentation based on data recieved.
 server.tool(
@@ -289,13 +248,13 @@ server.tool(
     }
 
     try {
-      await initiateSlides(data);
+      const presentationId = await initiateSlides(data);
 
       return {
         content: [
           {
             type: "text",
-            text: "Pitch Deck created succesfully. Check your root Google Drives Folder!",
+            text: `Presentation ID: ${presentationId}`,
           } as { [x: string]: unknown; type: "text"; text: string },
         ],
       };
@@ -313,11 +272,60 @@ server.tool(
   }
 );
 
+const addCustomSlideToolDescription = `This tool allows the user to create a custom slide based on their input.
+You MUST call extract-company-data before you run this tool. The output of extract-company-data will serve as the input for this tool.
+
+This tool's parameters are the following: 
+- A custom title for this new slide you create. Make up your own title.
+- A paragraph you compose based on the user's request. You must use the data extracted from extract-company-data as context for the writing you produce. 
+- The presentationID for the most recent presentation you've created. This is a string value.
+
+You DO NOT NEED to create a new presentation when you run this tool. Simply retrieve the presentationID that was returned when you first ran the create-presentation tool.`;
+
+server.tool(
+  "add-custom-slide",
+  addCustomSlideToolDescription,
+  {
+    slideTitle: z.string().describe("Your title for this custom-made slide"),
+    slideContent: z
+      .string()
+      .describe("The content made specifically for this slide by the LLM."),
+    presentationId: z
+      .string()
+      .describe(
+        "The presentationID for the most recently created Google Slides presentation."
+      ),
+  },
+  async ({ slideTitle, slideContent, presentationId }) => {
+    try {
+      await addCustomSlide(slideTitle, slideContent, presentationId);
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Succesfully created a new slide at: ${presentationId}`,
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: `There was an error creating a custom slide:\n${error}`,
+          },
+        ],
+      };
+    }
+  }
+);
+
 //Main function used to test MCPServer
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error("\nGoogle Slides MCP Server running on stdio...");
+  console.error("Google Slides MCP Server running on stdio...");
 }
 
 main().catch((error) => {

@@ -62,7 +62,7 @@ class MCPClient {
       this.clients.push(client);
       this.transports.push(transport);
 
-      console.log("Connected to server with tools...\n");
+      console.log(`Connected to server with tools...\n`);
     } catch (e) {
       console.log("Failed to connect to MCP server: ", e);
       throw e;
@@ -74,34 +74,56 @@ class MCPClient {
    * @param {string} query The user query
    */
   async processQuery(query: string) {
-    const messages = "";
+    try {
+      //Add a prompt that enhances the user's query.
+      const prop = "";
 
-    //Add a prompt that enhances the user's query.
-    const prop = "";
+      //Push user's message to chat history
+      this.messages.push({
+        role: "user",
+        parts: [{ text: query }],
+      });
 
-    //Push user's message to chat history
-    this.messages.push({
-      role: "user",
-      parts: [{ text: query }],
-    });
+      //Prompt the model and extract its response as text
+      const response = await this.ai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: this.messages,
+        config: {
+          tools: this.tools,
+        },
+      });
+      const reply = response?.text ?? "";
 
-    //Prompt the model and extract its response as text
-    const response = await this.ai.models.generateContent({
-      model: "gemini-2.5-flash",
-      contents: this.messages,
-      config: {
-        tools: this.tools,
-      },
-    });
-    const reply = response.text;
+      //Validate the model's response
+      if (typeof reply !== "string" || reply.trim() == "") {
+        console.log(
+          `\nSorry, the LLM returned an empty or invalid reply. Please try again.\n${response.text}`
+        );
+        this.messages.pop();
+        return;
+      }
 
-    //Push model's response to chat history
-    this.messages.push({
-      role: "model",
-      parts: [{ text: reply }],
-    });
+      //Push model's response to chat history
+      this.messages.push({
+        role: "model",
+        parts: [{ text: reply }],
+      });
 
-    return reply;
+      return reply;
+    } catch (error) {
+      console.error("Error in processQuery()", error);
+
+      this.messages.push({
+        role: "model",
+        parts: [
+          {
+            text: `There was an error processing your request:\n${error}`,
+          },
+        ],
+      });
+
+      return `There was an error in processQuery():\n${error}`;
+    }
   }
 
   /**
@@ -118,7 +140,7 @@ class MCPClient {
     //Create the CLI interface
     try {
       console.log("MCP Client Started!");
-      console.log("\nType your queries or 'quit' to exit.");
+      console.log("Type your queries or 'quit' to exit.");
 
       while (true) {
         const message = await rl.question("\nQuery: ");
@@ -160,14 +182,16 @@ async function main() {
   //Initiate the MCP Client(s)
   const mcpClient = new MCPClient();
   try {
-    console.error("MCP Ecosystem is booting up...");
+    console.error("\nMCP Ecosystem is booting up...");
     await mcpClient.connectToServer(slidesMCPPath);
     //await mcpClient.connectToServer(notionMCPPath);
     await mcpClient.chatLoop();
-  } finally {
-    await mcpClient.cleanup();
-    process.exit(0);
+  } catch (error) {
+    console.error(`\nFatal error in MCPClient main(): \n${error}`);
   }
+
+  await mcpClient.cleanup();
+  process.exit(0);
 }
 
 main();
